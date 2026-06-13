@@ -1,4 +1,4 @@
-"""Fetch a Steam user's game library and filter it down to their backlog."""
+#Fetch a Steam user's game library and filter it down to their backlog
 
 import os
 
@@ -16,7 +16,7 @@ API_URL = "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
 
 
 def fetch_owned_games(api_key: str, steam_id: str) -> list[dict]:
-    """Return the user's owned games, or raise a helpful error."""
+    #Return the user's owned games, or raise a helpful error
     params = {
         "key": api_key,
         "steamid": steam_id,
@@ -38,7 +38,7 @@ def fetch_owned_games(api_key: str, steam_id: str) -> list[dict]:
 
 
 def filter_backlog(games: list[dict], threshold: int = BACKLOG_THRESHOLD_MINUTES) -> list[dict]:
-    """Keep only games with playtime under the threshold (in minutes)."""
+    #Keep only games with playtime under the threshold (in minutes)
     return [g for g in games if g.get("playtime_forever", 0) < threshold]
 
 
