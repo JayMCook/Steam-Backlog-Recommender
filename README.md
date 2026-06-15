@@ -2,82 +2,84 @@
 
 An AI-powered tool that looks at your Steam backlog — the games you own but haven't really played — and recommends what to play next based on your current mood.
 
+**[Live Demo](https://steam-backlog-recommender.vercel.app/)** · **[API Docs](https://steam-backlog-recommender.onrender.com/docs)**
+
+---
+
 ## How it works
 
-1. **Fetch** — Pulls your owned games library from the Steam Web API using your SteamID or Steam username.
+1. **Fetch** — Pulls your owned games library from the Steam Web API using your Steam username or SteamID64.
 2. **Filter** — Identifies your "backlog": games with under 2 hours of playtime.
 3. **Enrich** — Fetches genre and description metadata for each backlog game from the Steam Store API, with local caching to avoid redundant requests.
-4. **Recommend** — Sends your backlog (trimmed to relevant fields) and your mood description to Claude, which returns a top recommendation plus two runner-ups, each with reasoning, as structured JSON.
+4. **Recommend** — Sends your filtered backlog and mood description to Claude, which returns a top pick plus two runner-ups with reasoning, as structured JSON.
 
 ```
-React frontend → FastAPI backend → Steam Web API (library)
-                                  → Steam Store API (genres/descriptions, cached)
-                                  → Anthropic API (recommendation reasoning)
+React frontend → FastAPI backend → Steam Web API  (library fetch)
+                                 → Steam Store API (genres/descriptions, cached)
+                                 → Anthropic API  (recommendation reasoning)
 ```
+
+---
+
+## Try it
+
+**[steam-backlog-recommender.vercel.app](https://steam-backlog-recommender.vercel.app/)**
+
+1. Set your Steam profile's **Game details** to **Public** (Steam → Edit Profile → Privacy Settings)
+2. Enter your Steam username or SteamID64
+3. Describe what you're in the mood to play
+4. Get a recommendation pulled from games already in your library
+
+**Finding your identifier:** If your Steam profile URL is `steamcommunity.com/id/yourname`, enter `yourname`. If it's `steamcommunity.com/profiles/76561198012345678`, use the number at the end.
+
+---
 
 ## Tech stack
 
-- **Backend:** Python, FastAPI
-- **Frontend:** React (Vite)
-- **LLM:** Anthropic Claude API
-- **Data sources:** Steam Web API, Steam Store API
+| Layer | Technology |
+|---|---|
+| Frontend | React, Vite |
+| Backend | Python, FastAPI |
+| LLM | Anthropic Claude (claude-sonnet-4-6) |
+| Data | Steam Web API, Steam Store API |
+| Deployment | Vercel (frontend), Render (backend) |
 
-## Running locally
+---
 
-### Backend
+## API
 
-```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-Create a `.env` file in `backend/`:
+The backend is publicly accessible. Interactive docs at **[steam-backlog-recommender.onrender.com/docs](https://steam-backlog-recommender.onrender.com/docs)**.
 
 ```
-STEAM_API_KEY=your_steam_api_key
-ANTHROPIC_API_KEY=your_anthropic_api_key
+GET  /backlog/{steam_id}   Returns the user's enriched backlog
+POST /recommend            { "steam_id": "...", "mood": "..." } → recommendation JSON
 ```
 
-Run the server:
+**Note:** Render's free tier spins down after inactivity — the first request after idle may take 30–60 seconds to wake up.
 
-```bash
-uvicorn main:app --reload
-```
-
-API docs available at `http://127.0.0.1:8000/docs`.
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Visit `http://localhost:5173`.
-
-## Usage
-
-Enter your Steam username (if your profile has a custom URL) or your SteamID64, describe what you're in the mood to play, and get a recommendation pulled from games already sitting in your library.
-
-**Note:** Your Steam profile's "Game details" privacy setting must be set to **Public** (Steam → Edit Profile → Privacy Settings) for the app to read your library.
+---
 
 ## Design notes
 
-**Why filter by playtime instead of a manual "backlog" list?** Most people don't maintain a curated backlog — their library *is* their backlog. Using `playtime_forever < 120 minutes` as a heuristic captures "owned but never really played" without requiring any extra input from the user.
+**Why filter by playtime instead of a manual backlog list?** Most people don't maintain a curated backlog — their library *is* their backlog. Under 2 hours played captures "owned but never really played" without requiring any extra input.
 
-**Why cache Store API metadata?** The Steam Store API is unofficial, rate-limited, and game metadata (genres, descriptions) never changes. Caching by app ID means the first lookup for any game is the only slow one — ever, across all users — and repeat requests are near-instant.
+**Why cache Store API metadata?** The Steam Store API is unofficial and rate-limited, and game metadata never changes. Caching by app ID means the first lookup for any game is the only slow one — ever — and repeat requests are instant.
 
-**Why structured JSON output from the LLM?** Asking Claude to return `{"recommendation": {...}, "runner_ups": [...]}` rather than free-form text means the response can be rendered directly into UI components (cards, images via Steam's header CDN) without additional parsing logic.
+**Why structured JSON from the LLM?** Asking Claude to return `{"recommendation": {...}, "runner_ups": [...]}` means the response renders directly into UI components without parsing. App IDs in the response are used to construct Steam's header image CDN URLs client-side, requiring no extra API calls for artwork.
+
+**Why resolve vanity URLs server-side?** Steam's `GetOwnedGames` endpoint only accepts SteamID64s. The backend calls `ResolveVanityURL` first when a non-numeric identifier is provided, so users can enter their username instead of hunting down a 17-digit ID.
+
+---
 
 ## Known limitations & future improvements
 
-- **File-based cache** — game metadata is cached to a local JSON file rather than a database. This is simple and effective for a project at this scale, but doesn't persist across redeploys on most hosting platforms. A natural next step would be Postgres or Redis for persistent, shared caching.
-- **Synchronous enrichment** — on a cold cache, fetching metadata for an uncached backlog happens sequentially with rate-limit delays, so first-time requests for large libraries can take up to a minute. Async/concurrent fetching with a bounded worker pool would speed this up significantly.
-- **Steam privacy requirement** — the app can only read libraries where "Game details" is set to Public. This is a Steam API constraint, not something the app can work around.
-- **Vanity URL dependency** — usernames only resolve if the user has set a custom Steam profile URL. Users without one must use their SteamID64.
+- **File-based cache** — game metadata is cached to a local JSON file. Doesn't persist across Render redeploys. Postgres or Redis would be the natural next step for production persistence.
+- **Cold start latency** — Render's free tier spins down after inactivity. First request after idle takes 30–60 seconds.
+- **Synchronous enrichment** — metadata is fetched sequentially on a cold cache, so first-time requests for large libraries can take up to a minute. Async fetching with a bounded worker pool would speed this up significantly.
+- **Steam privacy requirement** — requires "Game details" set to Public. This is a Steam API constraint.
+- **Vanity URL dependency** — username resolution only works if the user has set a custom Steam profile URL. Others must use their SteamID64.
+
+---
 
 ## Project structure
 
@@ -85,10 +87,15 @@ Enter your Steam username (if your profile has a custom URL) or your SteamID64, 
 backend/
   main.py            # FastAPI app and routes
   fetch_backlog.py   # Steam Web API integration, ID resolution, backlog filtering
-  enrich.py          # Steam Store API integration with caching
+  enrich.py          # Steam Store API integration with local caching
   recommend.py       # LLM prompt construction and recommendation logic
+  requirements.txt
   cache/             # Local metadata cache (gitignored)
+
 frontend/
-  src/App.jsx        # Main UI component
-  src/App.css        # Styling
+  src/
+    App.jsx          # Main UI component
+    App.css          # Styling
+  index.html         # Browser title and favicon
+  public/            # Static assets
 ```
